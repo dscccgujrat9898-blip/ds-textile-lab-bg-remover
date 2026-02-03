@@ -384,32 +384,39 @@ runBtn.addEventListener('click', ()=>{
   // solid: normal RGB distance
   // light: weight towards brightness difference
   // greenscreen: bias to green/blue
-  for(let i=0; i<d.length; i+=4){
-    const r=d[i], g=d[i+1], b=d[i+2];
-    let score=0;
+    // ===== ADVANCED MATTE REFINEMENT =====
+for(let i=0; i<d.length; i+=4){
 
-    if(md==="solid"){
-      score = distRGB(r,g,b, bg[0],bg[1],bg[2]);
-    }else if(md==="light"){
-      const br = (r*0.2126 + g*0.7152 + b*0.0722);
-      const bb = (bg[0]*0.2126 + bg[1]*0.7152 + bg[2]*0.0722);
-      const colorDist = distRGB(r,g,b, bg[0],bg[1],bg[2]);
-      const brightDist = Math.abs(br-bb);
-      score = (0.55*colorDist + 0.75*brightDist);
-    }else{ // greenscreen
-      // choose whether bg leans green or blue
-      const greenScore = Math.max(0, g - Math.max(r,b)); // strong green
-      const blueScore  = Math.max(0, b - Math.max(r,g)); // strong blue
-      const chroma = Math.max(greenScore, blueScore);
-      // combine with distance to picked bg
-      const dist = distRGB(r,g,b, bg[0],bg[1],bg[2]);
-      score = dist - chroma; // if chroma high, score lower -> more likely bg
-    }
+  const r=d[i], g=d[i+1], b=d[i+2];
 
-    // alpha decision: if score < threshold -> background
-    if(score < T){
-      d[i+3] = 0;
-    }else{
+  let score = distRGB(r,g,b, bg[0],bg[1],bg[2]);
+
+  let alpha = 255;
+
+  // Smooth transition instead of hard cut
+  if(score < T){
+    alpha = 0;
+  } 
+  else if(score < T+25){
+    alpha = Math.round((score-T)/25 * 255);
+  }
+
+  // Matte shrink (tight edge)
+  if(alpha < 255){
+    alpha = Math.max(0, alpha - 25);
+  }
+
+  d[i+3] = alpha;
+
+  // Color Decontamination (remove white halo)
+  if(alpha < 220){
+    const factor = alpha / 255;
+    d[i]   = r * factor;
+    d[i+1] = g * factor;
+    d[i+2] = b * factor;
+  }
+}
+else{
       // soft transition near threshold to keep fibers
       const band = 12; // transition band
       const a = clamp((score - (T-band))/band, 0, 1);
