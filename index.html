@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DS Textile Lab | Pro Background Remover</title>
+<style>
+  :root{--bg:#0b1220;--card:#0f1b34;--muted:#a9b7d0;--txt:#e9f0ff;--line:#233457;--btn:#2b5cff}
+  *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  body{margin:0;background:radial-gradient(1200px 600px at 20% 0%,#14264a 0%,#0b1220 50%,#070b14 100%);color:var(--txt)}
+  header{padding:18px 14px;border-bottom:1px solid rgba(255,255,255,.06);position:sticky;top:0;background:rgba(11,18,32,.8);backdrop-filter:blur(10px)}
+  header h1{margin:0;font-size:18px;letter-spacing:.2px}
+  header p{margin:6px 0 0;color:var(--muted);font-size:13px}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:14px}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,rgba(15,27,52,.86),rgba(10,16,32,.86));border:1px solid rgba(255,255,255,.08);
+        border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:14px}
+  .title{font-size:14px;margin:0 0 8px;color:#d9e6ff}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .btn{appearance:none;border:0;background:var(--btn);color:#fff;padding:10px 12px;border-radius:12px;cursor:pointer;
+       font-weight:600;font-size:13px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.secondary{background:#1b2a4a}
+  .btn.danger{background:#c0363a}
+  .hint{color:var(--muted);font-size:12px;line-height:1.4;margin-top:8px}
+  .control{padding:10px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.16)}
+  label{display:block;font-size:12px;color:#cfe0ff;margin-bottom:6px}
+  input[type="range"]{width:100%}
+  select, input[type="file"]{width:100%;color:var(--txt);background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.1);
+    padding:10px;border-radius:12px}
+  .pill{display:inline-flex;gap:8px;align-items:center;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.1);
+        background:rgba(0,0,0,.18);color:#d8e6ff;font-size:12px}
+  .preview{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:700px){.preview{grid-template-columns:1fr}}
+  .pane{border:1px solid rgba(255,255,255,.1);border-radius:14px;overflow:hidden;background:rgba(0,0,0,.18)}
+  .paneHead{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
+  .paneHead strong{font-size:13px}
+  .paneHead span{font-size:12px;color:var(--muted)}
+  canvas{width:100%;height:auto;display:block}
+  .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:rgba(255,255,255,.1);
+       padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.12)}
+  .footer{margin-top:14px;color:var(--muted);font-size:12px;line-height:1.5}
+  a{color:#9ec0ff;text-decoration:none}
+  a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>DS Textile Lab — Pro Background Remover</h1>
+    <p>Designed for motifs, repeats, embroidery assets & digital textile prints • No API • Works in browser</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <!-- Left controls -->
+    <div class="card">
+      <p class="title">1) Upload</p>
+      <input id="file" type="file" accept="image/*" />
+
+      <div style="height:10px"></div>
+
+      <p class="title">2) Mode</p>
+      <div class="control">
+        <label for="mode">Background type</label>
+        <select id="mode">
+          <option value="solid" selected>Solid / White / Cream BG (Textile Motif)</option>
+          <option value="light">Studio Light BG (Near-white gradients)</option>
+          <option value="greenscreen">Green/Blue Screen BG</option>
+        </select>
+        <div class="hint">
+          • Solid mode = best for flat backgrounds<br>
+          • Light mode = best for photo-like light BG<br>
+          • Green/Blue = best for chroma backgrounds
+        </div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <p class="title">3) Precision Controls</p>
+      <div class="control">
+        <label>Cut Strength (Tolerance): <span id="tolVal" class="pill">35</span></label>
+        <input id="tol" type="range" min="5" max="120" value="35" />
+        <div class="hint">Higher = more background removed. Start 30–45 for textile motifs.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="control">
+        <label>Edge Feather (Softness): <span id="featherVal" class="pill">2</span></label>
+        <input id="feather" type="range" min="0" max="10" value="2" />
+        <div class="hint">Smooth edges for embroidery / print. 1–3 recommended.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <div class="control">
+        <label>Despeckle (Dust Remove): <span id="despVal" class="pill">1</span></label>
+        <input id="desp" type="range" min="0" max="3" value="1" />
+        <div class="hint">Removes tiny noise pixels after cut. Use 1–2 for clean output.</div>
+      </div>
+
+      <div style="height:10px"></div>
+
+      <p class="title">4) Smart Sampling</p>
+      <div class="control">
+        <div class="row" style="justify-content:space-between">
+          <span class="pill">Auto BG from corners+edges</span>
+          <span class="pill">Manual picker: <span class="kbd">Click</span></span>
+        </div>
+        <div class="hint">
+          If auto picks wrong BG, click on the <b>Original</b> preview to pick BG color manually.
+        </div>
+      </div>
+
+      <div style="height:12px"></div>
+
+      <div class="row">
+        <button id="run" class="btn" disabled>Remove Background</button>
+        <button id="reset" class="btn secondary" disabled>Reset</button>
+        <button id="download" class="btn" disabled>Download PNG</button>
+      </div>
+
+      <div class="footer">
+        Tips: For motifs with holes/jaali, keep <b>tolerance</b> moderate and use <b>feather 2</b>.
+        For green screen, select <b>Green/Blue Screen</b> mode.
+      </div>
+    </div>
+
+    <!-- Right previews -->
+    <div class="card">
+      <div class="preview">
+        <div class="pane">
+          <div class="paneHead">
+            <strong>Original</strong>
+            <span id="origInfo">—</span>
+          </div>
+          <canvas id="c1"></canvas>
+        </div>
+        <div class="pane">
+          <div class="paneHead">
+            <strong>Cutout (Transparent)</strong>
+            <span id="outInfo">—</span>
+          </div>
+          <canvas id="c2"></canvas>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px">
+        • Manual BG pick: click on <b>Original</b> canvas to set background color.  
+        • You can run removal multiple times with new settings.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const file = document.getElementById('file');
+const runBtn = document.getElementById('run');
+const resetBtn = document.getElementById('reset');
+const dlBtn = document.getElementById('download');
+
+const tol = document.getElementById('tol');
+const feather = document.getElementById('feather');
+const desp = document.getElementById('desp');
+const mode = document.getElementById('mode');
+
+const tolVal = document.getElementById('tolVal');
+const featherVal = document.getElementById('featherVal');
+const despVal = document.getElementById('despVal');
+
+const c1 = document.getElementById('c1');
+const c2 = document.getElementById('c2');
+const ctx1 = c1.getContext('2d', {willReadFrequently:true});
+const ctx2 = c2.getContext('2d', {willReadFrequently:true});
+
+const origInfo = document.getElementById('origInfo');
+const outInfo = document.getElementById('outInfo');
+
+let img = new Image();
+let originalData = null;
+let pickedBG = null; // [r,g,b]
+let hasImage = false;
+
+tol.addEventListener('input',()=> tolVal.textContent = tol.value);
+feather.addEventListener('input',()=> featherVal.textContent = feather.value);
+desp.addEventListener('input',()=> despVal.textContent = desp.value);
+
+file.addEventListener('change', (e)=>{
+  const f = e.target.files?.[0];
+  if(!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    img = new Image();
+    img.onload = () => {
+      // fit: keep native pixels for quality
+      c1.width = img.naturalWidth; c1.height = img.naturalHeight;
+      c2.width = img.naturalWidth; c2.height = img.naturalHeight;
+      ctx1.clearRect(0,0,c1.width,c1.height);
+      ctx2.clearRect(0,0,c2.width,c2.height);
+      ctx1.drawImage(img,0,0);
+      originalData = ctx1.getImageData(0,0,c1.width,c1.height);
+      hasImage = true;
+      pickedBG = null; // reset picker
+      origInfo.textContent = `${img.naturalWidth}×${img.naturalHeight}px`;
+      outInfo.textContent = `—`;
+      runBtn.disabled = false;
+      resetBtn.disabled = false;
+      dlBtn.disabled = true;
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(f);
+});
+
+// Manual BG picker
+c1.addEventListener('click', (ev)=>{
+  if(!hasImage) return;
+  const rect = c1.getBoundingClientRect();
+  const x = Math.round((ev.clientX - rect.left) * (c1.width / rect.width));
+  const y = Math.round((ev.clientY - rect.top) * (c1.height / rect.height));
+  const d = ctx1.getImageData(x,y,1,1).data;
+  pickedBG = [d[0], d[1], d[2]];
+  outInfo.textContent = `BG picked: rgb(${pickedBG.join(',')})`;
+});
+
+// Reset
+resetBtn.addEventListener('click', ()=>{
+  if(!hasImage) return;
+  ctx1.putImageData(originalData,0,0);
+  ctx2.clearRect(0,0,c2.width,c2.height);
+  pickedBG = null;
+  outInfo.textContent = `—`;
+  dlBtn.disabled = true;
+});
+
+// Download
+dlBtn.addEventListener('click', ()=>{
+  if(!hasImage) return;
+  const a = document.createElement('a');
+  a.download = 'ds-textile-cutout.png';
+  a.href = c2.toDataURL('image/png');
+  a.click();
+});
+
+// Utils
+function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+function distRGB(r,g,b, r2,g2,b2){
+  const dr=r-r2, dg=g-g2, db=b-b2;
+  return Math.sqrt(dr*dr + dg*dg + db*db);
+}
+
+// sample background color from corners + edges
+function autoPickBG(data, w, h){
+  const samples = [];
+  const pick = (x,y)=>{
+    const i = (y*w + x)*4;
+    samples.push([data[i],data[i+1],data[i+2]]);
+  };
+
+  const pad = Math.max(2, Math.floor(Math.min(w,h)*0.01)); // 1% padding
+  // corners cluster
+  for(let dy=0; dy<pad; dy++){
+    for(let dx=0; dx<pad; dx++){
+      pick(dx,dy);
+      pick(w-1-dx,dy);
+      pick(dx,h-1-dy);
+      pick(w-1-dx,h-1-dy);
+    }
+  }
+  // edges sparse
+  const step = Math.max(10, Math.floor(Math.min(w,h)/60));
+  for(let x=0; x<w; x+=step){
+    pick(x, pad);
+    pick(x, h-1-pad);
+  }
+  for(let y=0; y<h; y+=step){
+    pick(pad, y);
+    pick(w-1-pad, y);
+  }
+
+  // robust mean (trim extremes)
+  samples.sort((a,b)=>(a[0]+a[1]+a[2])-(b[0]+b[1]+b[2]));
+  const trim = Math.floor(samples.length*0.1);
+  const core = samples.slice(trim, samples.length-trim);
+
+  let r=0,g=0,b=0;
+  for(const s of core){ r+=s[0]; g+=s[1]; b+=s[2]; }
+  r=Math.round(r/core.length); g=Math.round(g/core.length); b=Math.round(b/core.length);
+  return [r,g,b];
+}
+
+// feather alpha by simple neighbor blur on alpha channel
+function featherAlpha(imgData, w, h, radius){
+  if(radius<=0) return imgData;
+  const d = imgData.data;
+  const a = new Uint8ClampedArray(w*h);
+  for(let i=0, p=0; i<d.length; i+=4, p++) a[p] = d[i+3];
+
+  const outA = new Uint8ClampedArray(w*h);
+  const r = radius;
+
+  for(let y=0; y<h; y++){
+    for(let x=0; x<w; x++){
+      let sum=0, cnt=0;
+      for(let yy=y-r; yy<=y+r; yy++){
+        if(yy<0||yy>=h) continue;
+        for(let xx=x-r; xx<=x+r; xx++){
+          if(xx<0||xx>=w) continue;
+          sum += a[yy*w+xx];
+          cnt++;
+        }
+      }
+      outA[y*w+x] = Math.round(sum/cnt);
+    }
+  }
+  for(let i=0, p=0; i<d.length; i+=4, p++){
+    d[i+3] = outA[p];
+  }
+  return imgData;
+}
+
+// despeckle: remove isolated tiny opaque pixels / tiny transparent holes
+function despeckle(imgData, w, h, level){
+  if(level<=0) return imgData;
+  const d = imgData.data;
+
+  const pass = (mode)=>{ // mode=0 remove tiny dots, mode=1 fill tiny holes
+    const a = new Uint8ClampedArray(w*h);
+    for(let i=0,p=0;i<d.length;i+=4,p++) a[p]=d[i+3];
+
+    const out = new Uint8ClampedArray(a);
+    const thr = mode===0 ? 20 : 235; // dot/holes
+    const r = 1 + (level-1); // 1..3
+    for(let y=1; y<h-1; y++){
+      for(let x=1; x<w-1; x++){
+        const idx = y*w+x;
+        const center = a[idx];
+        let neigh=0, total=0;
+        for(let yy=y-r; yy<=y+r; yy++){
+          if(yy<0||yy>=h) continue;
+          for(let xx=x-r; xx<=x+r; xx++){
+            if(xx<0||xx>=w) continue;
+            total++;
+            const v = a[yy*w+xx];
+            if(mode===0){ if(v>thr) neigh++; }
+            else{ if(v>thr) neigh++; }
+          }
+        }
+        // remove tiny isolated opaque pixel
+        if(mode===0 && center>thr && neigh <= Math.max(2, Math.floor(total*0.15))){
+          out[idx]=0;
+        }
+        // fill tiny transparent hole
+        if(mode===1 && center<thr && neigh >= Math.floor(total*0.75)){
+          out[idx]=255;
+        }
+      }
+    }
+    for(let i=0,p=0;i<d.length;i+=4,p++) d[i+3]=out[p];
+  };
+
+  pass(0); // remove dots
+  pass(1); // fill tiny holes
+  return imgData;
+}
+
+// Main removal
+runBtn.addEventListener('click', ()=>{
+  if(!hasImage) return;
+
+  // restore original as base
+  ctx1.putImageData(originalData,0,0);
+  const base = ctx1.getImageData(0,0,c1.width,c1.height);
+  const d = base.data, w=c1.width, h=c1.height;
+
+  // pick bg
+  const bg = pickedBG ?? autoPickBG(d,w,h);
+  const T = parseInt(tol.value,10);
+  const md = mode.value;
+
+  // mode specific tweaks
+  // solid: normal RGB distance
+  // light: weight towards brightness difference
+  // greenscreen: bias to green/blue
+  for(let i=0; i<d.length; i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2];
+    let score=0;
+
+    if(md==="solid"){
+      score = distRGB(r,g,b, bg[0],bg[1],bg[2]);
+    }else if(md==="light"){
+      const br = (r*0.2126 + g*0.7152 + b*0.0722);
+      const bb = (bg[0]*0.2126 + bg[1]*0.7152 + bg[2]*0.0722);
+      const colorDist = distRGB(r,g,b, bg[0],bg[1],bg[2]);
+      const brightDist = Math.abs(br-bb);
+      score = (0.55*colorDist + 0.75*brightDist);
+    }else{ // greenscreen
+      // choose whether bg leans green or blue
+      const greenScore = Math.max(0, g - Math.max(r,b)); // strong green
+      const blueScore  = Math.max(0, b - Math.max(r,g)); // strong blue
+      const chroma = Math.max(greenScore, blueScore);
+      // combine with distance to picked bg
+      const dist = distRGB(r,g,b, bg[0],bg[1],bg[2]);
+      score = dist - chroma; // if chroma high, score lower -> more likely bg
+    }
+
+    // alpha decision: if score < threshold -> background
+    if(score < T){
+      d[i+3] = 0;
+    }else{
+      // soft transition near threshold to keep fibers
+      const band = 12; // transition band
+      const a = clamp((score - (T-band))/band, 0, 1);
+      d[i+3] = Math.round(255 * a);
+    }
+  }
+
+  // feather + despeckle
+  let out = base;
+  out = featherAlpha(out,w,h, parseInt(feather.value,10));
+  out = despeckle(out,w,h, parseInt(desp.value,10));
+
+  // draw to output canvas
+  ctx2.putImageData(out,0,0);
+
+  outInfo.textContent = `Ready • BG rgb(${bg.join(',')}) • tol ${T}`;
+  dlBtn.disabled = false;
+});
+</script>
+</body>
+</html>
