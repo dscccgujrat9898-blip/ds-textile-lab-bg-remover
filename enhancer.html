@@ -43,7 +43,7 @@
 <header>
   <div class="wrap">
     <h1>DS Image Enhancer — HD Upscale</h1>
-    <p>Resize + Denoise + Sharpen (browser-based). “Keep Ratio” से aspect same रहेगा.</p>
+    <p>Resize + Denoise + Real Sharpen (Unsharp Mask) • Unit (px/in/cm) • DPI (Resolution)</p>
   </div>
 </header>
 
@@ -55,13 +55,26 @@
       <label>Upload Image</label>
       <input id="file" type="file" accept="image/*">
 
-      <div class="hint">Tip: बहुत ज़्यादा blur image में “नई detail” नहीं बनेगी, पर साफ़/HD size में output मिलेगा.</div>
+      <div class="hint">
+        Tip: बहुत ज़्यादा blur image में “नई detail” नहीं बनेगी, पर size + clarity काफी improve होगी.
+        Textile/print के लिए DPI 300 रखें.
+      </div>
 
-      <label>Target Width (px)</label>
-      <input id="w" type="number" min="50" value="1920">
+      <label>Unit</label>
+      <select id="unit">
+        <option value="px" selected>Pixels (px)</option>
+        <option value="inch">Inch</option>
+        <option value="cm">CM</option>
+      </select>
 
-      <label>Target Height (px)</label>
-      <input id="h" type="number" min="50" value="1080">
+      <label>Resolution (DPI)</label>
+      <input id="dpi" type="number" value="300" min="72" max="1200">
+
+      <label>Target Width</label>
+      <input id="w" type="number" min="1" value="1920">
+
+      <label>Target Height</label>
+      <input id="h" type="number" min="1" value="1080">
 
       <div class="check">
         <input id="keep" type="checkbox" checked>
@@ -90,21 +103,10 @@
       </div>
 
       <div class="hint">
-        Suggested: Denoise 1, Sharpen 2, Contrast 6–10.  
-        Logos/text: Denoise 0, Sharpen 2–3.
+        Suggested (Motif/Print): Denoise 1, Sharpen 2–3, Contrast 6–10.<br>
+        Logos/Text: Denoise 0, Sharpen 2–3, Contrast 5–8.
       </div>
-      <label>Unit</label>
-<select onchange="unit=this.value">
-  <option value="px" selected>Pixels</option>
-  <option value="inch">Inch</option>
-  <option value="cm">CM</option>
-</select>
-
-<label>Resolution (DPI)</label>
-<input type="number" value="300" onchange="dpi=parseInt(this.value)">
-
     </div>
-    
 
     <!-- Preview -->
     <div class="card">
@@ -126,7 +128,7 @@
         </div>
       </div>
       <div class="hint" style="margin-top:10px">
-        Output आपके दिए हुए size में बनेगा. Keep Ratio on हो तो height/width auto adjust हो जाएगा.
+        Output size = आपके दिए हुए Unit + DPI के हिसाब से बनता है. Keep Ratio ON होने पर height/width auto adjust.
       </div>
     </div>
 
@@ -139,6 +141,8 @@ const run = document.getElementById('run');
 const reset = document.getElementById('reset');
 const dl = document.getElementById('dl');
 
+const unitSel = document.getElementById('unit');
+const dpiIn = document.getElementById('dpi');
 const wIn = document.getElementById('w');
 const hIn = document.getElementById('h');
 const keep = document.getElementById('keep');
@@ -148,168 +152,310 @@ const sharpen = document.getElementById('sharpen');
 const contrast = document.getElementById('contrast');
 const fmt = document.getElementById('fmt');
 
+const dnVal = document.getElementById('dnVal');
+const shVal = document.getElementById('shVal');
+const ctVal = document.getElementById('ctVal');
+
 const c1 = document.getElementById('c1');
 const c2 = document.getElementById('c2');
 const ctx1 = c1.getContext('2d',{willReadFrequently:true});
 const ctx2 = c2.getContext('2d',{willReadFrequently:true});
 
+const info1 = document.getElementById('info1');
+const info2 = document.getElementById('info2');
+
 let img = new Image();
 let srcData = null;
 let srcW=0, srcH=0;
 
-function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-
-// ---- DPI + UNIT SYSTEM ----
 let dpi = 300;
 let unit = "px";
 
+dnVal.textContent = denoise.value;
+shVal.textContent = sharpen.value;
+ctVal.textContent = contrast.value;
+
+denoise.addEventListener('input', ()=> dnVal.textContent = denoise.value);
+sharpen.addEventListener('input', ()=> shVal.textContent = sharpen.value);
+contrast.addEventListener('input', ()=> ctVal.textContent = contrast.value);
+
+function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+// --- read unit/dpi ---
+function readUnitDpi(){
+  unit = unitSel.value;
+  dpi = parseInt(dpiIn.value || "300", 10);
+  if(!dpi || dpi<72) dpi = 300;
+  dpiIn.value = dpi;
+}
+unitSel.addEventListener("change", readUnitDpi);
+dpiIn.addEventListener("input", readUnitDpi);
+readUnitDpi();
+
+// --- unit -> pixels ---
 function toPixels(val){
   if(unit==="px") return val;
   if(unit==="inch") return val * dpi;
   if(unit==="cm") return (val/2.54) * dpi;
   return val;
 }
-
-function convertSize(){
-  let W = parseFloat(wIn.value);
-  let H = parseFloat(hIn.value);
-  return {
-    w: Math.round(toPixels(W)),
-    h: Math.round(toPixels(H))
-  };
+function fromPixels(px){
+  if(unit==="px") return px;
+  if(unit==="inch") return px / dpi;
+  if(unit==="cm") return (px / dpi) * 2.54;
+  return px;
 }
 
-// ---- Image Upload ----
+// Keep Ratio syncing when typing
+function syncRatio(changed){
+  if(!srcW || !srcH) return;
+  if(!keep.checked) return;
+
+  // treat current inputs as unit-based, convert to px to compute ratio
+  let W = parseFloat(wIn.value || "0");
+  let H = parseFloat(hIn.value || "0");
+  if(W<=0 || H<=0) return;
+
+  const ar = srcW / srcH;
+
+  if(changed==="w"){
+    const Wpx = toPixels(W);
+    const Hpx = Math.round(Wpx / ar);
+    hIn.value = (Math.round(fromPixels(Hpx) * 1000) / 1000);
+  }else{
+    const Hpx = toPixels(H);
+    const Wpx = Math.round(Hpx * ar);
+    wIn.value = (Math.round(fromPixels(Wpx) * 1000) / 1000);
+  }
+}
+
+wIn.addEventListener("input", ()=> syncRatio("w"));
+hIn.addEventListener("input", ()=> syncRatio("h"));
+keep.addEventListener("change", ()=> syncRatio("w"));
+unitSel.addEventListener("change", ()=> { readUnitDpi(); syncRatio("w"); });
+dpiIn.addEventListener("input", ()=> { readUnitDpi(); syncRatio("w"); });
+
+// --- Image Upload ---
 file.addEventListener('change',(e)=>{
   const f=e.target.files?.[0];
   if(!f) return;
+
   const r=new FileReader();
   r.onload=()=>{
     img=new Image();
     img.onload=()=>{
       srcW=img.naturalWidth;
       srcH=img.naturalHeight;
+
       c1.width=srcW; c1.height=srcH;
+      ctx1.clearRect(0,0,srcW,srcH);
       ctx1.drawImage(img,0,0);
       srcData=ctx1.getImageData(0,0,srcW,srcH);
+
+      info1.textContent = `${srcW}×${srcH}px`;
+
+      // default target = 2x but safe
+      if(unit==="px"){
+        wIn.value = Math.min(1920, Math.round(srcW*2));
+        hIn.value = Math.round((wIn.value/srcW)*srcH);
+      }else{
+        // set sensible print size: width ~ 8 inch if possible
+        const defaultWpx = Math.min(2400, Math.round(srcW*2));
+        wIn.value = (Math.round(fromPixels(defaultWpx) * 1000)/1000);
+        syncRatio("w");
+      }
+
       run.disabled=false;
       reset.disabled=false;
+      dl.disabled=true;
+      info2.textContent = "—";
+      ctx2.clearRect(0,0,c2.width,c2.height);
     };
     img.src=r.result;
   };
   r.readAsDataURL(f);
 });
 
-// ---- Better Upscale (multi-pass for sharpness) ----
-function upscaleHighQuality(){
-  let size = convertSize();
-  let W = clamp(size.w,50,8000);
-  let H = clamp(size.h,50,8000);
+// Reset
+reset.addEventListener('click', ()=>{
+  if(!srcData) return;
+  ctx1.putImageData(srcData,0,0);
+  ctx2.clearRect(0,0,c2.width,c2.height);
+  info2.textContent = "—";
+  dl.disabled = true;
+});
 
-  if(keep.checked){
-    let ratio = srcW/srcH;
-    H = Math.round(W/ratio);
-  }
-
-  c2.width=W; c2.height=H;
-
-  ctx2.imageSmoothingEnabled=true;
-  ctx2.imageSmoothingQuality="high";
-
-  // multi-pass upscale
-  let tempW=srcW, tempH=srcH;
-  let tempCanvas=document.createElement("canvas");
-  let tctx=tempCanvas.getContext("2d");
-
-  tempCanvas.width=srcW;
-  tempCanvas.height=srcH;
-  tctx.drawImage(c1,0,0);
-
-  while(tempW < W){
-    tempW = Math.min(tempW*1.5, W);
-    tempH = Math.min(tempH*1.5, H);
-    let newCanvas=document.createElement("canvas");
-    newCanvas.width=tempW;
-    newCanvas.height=tempH;
-    let nctx=newCanvas.getContext("2d");
-    nctx.imageSmoothingEnabled=true;
-    nctx.imageSmoothingQuality="high";
-    nctx.drawImage(tempCanvas,0,0,tempW,tempH);
-    tempCanvas=newCanvas;
-  }
-
-  ctx2.drawImage(tempCanvas,0,0,W,H);
-
-  let out=ctx2.getImageData(0,0,W,H);
-
-  if(denoise.value>0) out=boxBlur(out,W,H,denoise.value);
-  if(contrast.value>0) out=applyContrast(out,contrast.value);
-  if(sharpen.value>0) out=unsharpMask(out,W,H,sharpen.value);
-
-  ctx2.putImageData(out,0,0);
-}
-
-// ---- Filters ----
-function boxBlur(imgData,w,h,radius){
+// --- Filters ---
+function boxBlurRGBA(imgData, w, h, radius){
+  radius = parseInt(radius,10);
   if(radius<=0) return imgData;
-  let d=imgData.data;
-  let out=new Uint8ClampedArray(d.length);
 
-  for(let y=1;y<h-1;y++){
-    for(let x=1;x<w-1;x++){
-      let sumR=0,sumG=0,sumB=0,count=0;
-      for(let dy=-radius;dy<=radius;dy++){
-        for(let dx=-radius;dx<=radius;dx++){
-          let i=((y+dy)*w+(x+dx))*4;
-          sumR+=d[i];
-          sumG+=d[i+1];
-          sumB+=d[i+2];
-          count++;
+  const d = imgData.data;
+  const out = new Uint8ClampedArray(d.length);
+  const r = radius;
+
+  for(let y=0; y<h; y++){
+    for(let x=0; x<w; x++){
+      let sr=0, sg=0, sb=0, sa=0, cnt=0;
+      for(let yy=y-r; yy<=y+r; yy++){
+        if(yy<0||yy>=h) continue;
+        for(let xx=x-r; xx<=x+r; xx++){
+          if(xx<0||xx>=w) continue;
+          const i = (yy*w+xx)*4;
+          sr+=d[i]; sg+=d[i+1]; sb+=d[i+2]; sa+=d[i+3];
+          cnt++;
         }
       }
-      let o=(y*w+x)*4;
-      out[o]=sumR/count;
-      out[o+1]=sumG/count;
-      out[o+2]=sumB/count;
-      out[o+3]=255;
+      const o=(y*w+x)*4;
+      out[o]=sr/cnt; out[o+1]=sg/cnt; out[o+2]=sb/cnt; out[o+3]=sa/cnt;
     }
   }
   imgData.data.set(out);
   return imgData;
 }
 
-function applyContrast(imgData,str){
-  let d=imgData.data;
-  let f=1+(str/20)*0.4;
+function contrastRGB(imgData, strength){
+  strength = parseInt(strength,10);
+  if(strength<=0) return imgData;
+  const d = imgData.data;
+  const f = 1 + (strength/20)*0.35; // 1..1.35
+  const mid = 128;
+
   for(let i=0;i<d.length;i+=4){
-    d[i]=clamp((d[i]-128)*f+128,0,255);
-    d[i+1]=clamp((d[i+1]-128)*f+128,0,255);
-    d[i+2]=clamp((d[i+2]-128)*f+128,0,255);
+    d[i]   = clamp((d[i]-mid)*f + mid, 0, 255);
+    d[i+1] = clamp((d[i+1]-mid)*f + mid, 0, 255);
+    d[i+2] = clamp((d[i+2]-mid)*f + mid, 0, 255);
   }
   return imgData;
 }
 
-function unsharpMask(imgData,w,h,level){
-  let d=imgData.data;
-  let k=[0.6,1.2,1.8,2.4][level];
-  for(let i=0;i<d.length;i+=4){
-    d[i]=clamp(d[i]*k,0,255);
-    d[i+1]=clamp(d[i+1]*k,0,255);
-    d[i+2]=clamp(d[i+2]*k,0,255);
+// Real Unsharp Mask: img + (img - blur)*amount
+function unsharpMask(imgData, w, h, level){
+  level = parseInt(level,10);
+  if(level<=0) return imgData;
+
+  const amount = [0, 0.7, 1.1, 1.5][level]; // 1..3
+  const blurCopy = new ImageData(new Uint8ClampedArray(imgData.data), w, h);
+  boxBlurRGBA(blurCopy, w, h, 1);
+
+  const d = imgData.data;
+  const b = blurCopy.data;
+
+  for(let i=0; i<d.length; i+=4){
+    d[i]   = clamp(d[i]   + (d[i]-b[i])     * amount, 0, 255);
+    d[i+1] = clamp(d[i+1] + (d[i+1]-b[i+1]) * amount, 0, 255);
+    d[i+2] = clamp(d[i+2] + (d[i+2]-b[i+2]) * amount, 0, 255);
   }
   return imgData;
 }
 
-// ---- Buttons ----
-run.addEventListener('click',upscaleHighQuality);
+// --- High-quality multi-pass upscale ---
+function drawMultiPassUpscale(targetW, targetH){
+  let tempW = srcW, tempH = srcH;
+  let tempCanvas = document.createElement("canvas");
+  let tctx = tempCanvas.getContext("2d");
 
-dl.addEventListener('click',()=>{
-  let a=document.createElement("a");
-  a.download="ds-enhanced.png";
-  a.href=c2.toDataURL("image/png");
+  tempCanvas.width = srcW;
+  tempCanvas.height = srcH;
+  tctx.imageSmoothingEnabled = true;
+  tctx.imageSmoothingQuality = "high";
+  tctx.drawImage(c1, 0, 0);
+
+  // step up gradually -> less blur
+  while(tempW < targetW || tempH < targetH){
+    const nextW = Math.min(targetW, Math.round(tempW * 1.5));
+    const nextH = Math.min(targetH, Math.round(tempH * 1.5));
+
+    const nextCanvas = document.createElement("canvas");
+    nextCanvas.width = nextW;
+    nextCanvas.height = nextH;
+    const nctx = nextCanvas.getContext("2d");
+    nctx.imageSmoothingEnabled = true;
+    nctx.imageSmoothingQuality = "high";
+    nctx.drawImage(tempCanvas, 0, 0, tempW, tempH, 0, 0, nextW, nextH);
+
+    tempCanvas = nextCanvas;
+    tempW = nextW;
+    tempH = nextH;
+
+    if(tempW === targetW && tempH === targetH) break;
+  }
+
+  ctx2.drawImage(tempCanvas, 0, 0, targetW, targetH);
+}
+
+// --- Main Enhance ---
+function enhanceAndUpscale(){
+  if(!srcData) return;
+
+  readUnitDpi();
+
+  let Wunit = parseFloat(wIn.value || "0");
+  let Hunit = parseFloat(hIn.value || "0");
+  if(Wunit<=0 || Hunit<=0) return;
+
+  let Wpx = Math.round(toPixels(Wunit));
+  let Hpx = Math.round(toPixels(Hunit));
+
+  // safe limits
+  Wpx = clamp(Wpx, 50, 8000);
+  Hpx = clamp(Hpx, 50, 8000);
+
+  if(keep.checked){
+    const ar = srcW / srcH;
+    Hpx = Math.round(Wpx / ar);
+    // update UI value in selected unit
+    hIn.value = (Math.round(fromPixels(Hpx) * 1000) / 1000);
+  }
+
+  c2.width = Wpx;
+  c2.height = Hpx;
+  ctx2.clearRect(0,0,Wpx,Hpx);
+  ctx2.imageSmoothingEnabled = true;
+  ctx2.imageSmoothingQuality = "high";
+
+  // multi-pass upscale into c2
+  drawMultiPassUpscale(Wpx, Hpx);
+
+  // process
+  let out = ctx2.getImageData(0,0,Wpx,Hpx);
+
+  const dn = parseInt(denoise.value,10);
+  const ct = parseInt(contrast.value,10);
+  const sh = parseInt(sharpen.value,10);
+
+  // order: denoise -> contrast -> sharpen
+  if(dn>0) out = boxBlurRGBA(out, Wpx, Hpx, dn);
+  if(ct>0) out = contrastRGB(out, ct);
+  if(sh>0) out = unsharpMask(out, Wpx, Hpx, sh);
+
+  ctx2.putImageData(out,0,0);
+
+  // info show: px + unit size + dpi
+  const wUnit = (Math.round(fromPixels(Wpx) * 1000) / 1000);
+  const hUnit = (Math.round(fromPixels(Hpx) * 1000) / 1000);
+  info2.textContent = `${Wpx}×${Hpx}px • ${wUnit}×${hUnit} ${unit} @${dpi}DPI`;
+
+  dl.disabled = false;
+}
+
+run.addEventListener('click', enhanceAndUpscale);
+
+// Download
+dl.addEventListener('click', ()=>{
+  if(!c2.width) return;
+  const a = document.createElement('a');
+
+  const format = fmt.value;
+  if(format === "jpg"){
+    a.download = "ds-enhanced.jpg";
+    a.href = c2.toDataURL("image/jpeg", 0.92);
+  }else{
+    a.download = "ds-enhanced.png";
+    a.href = c2.toDataURL("image/png");
+  }
   a.click();
 });
 </script>
-
 </body>
 </html>
