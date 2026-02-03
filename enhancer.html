@@ -93,7 +93,18 @@
         Suggested: Denoise 1, Sharpen 2, Contrast 6–10.  
         Logos/text: Denoise 0, Sharpen 2–3.
       </div>
+      <label>Unit</label>
+<select onchange="unit=this.value">
+  <option value="px" selected>Pixels</option>
+  <option value="inch">Inch</option>
+  <option value="cm">CM</option>
+</select>
+
+<label>Resolution (DPI)</label>
+<input type="number" value="300" onchange="dpi=parseInt(this.value)">
+
     </div>
+    
 
     <!-- Preview -->
     <div class="card">
@@ -137,215 +148,168 @@ const sharpen = document.getElementById('sharpen');
 const contrast = document.getElementById('contrast');
 const fmt = document.getElementById('fmt');
 
-const dnVal = document.getElementById('dnVal');
-const shVal = document.getElementById('shVal');
-const ctVal = document.getElementById('ctVal');
-
 const c1 = document.getElementById('c1');
 const c2 = document.getElementById('c2');
-const ctx1 = c1.getContext('2d', {willReadFrequently:true});
-const ctx2 = c2.getContext('2d', {willReadFrequently:true});
-
-const info1 = document.getElementById('info1');
-const info2 = document.getElementById('info2');
+const ctx1 = c1.getContext('2d',{willReadFrequently:true});
+const ctx2 = c2.getContext('2d',{willReadFrequently:true});
 
 let img = new Image();
 let srcData = null;
 let srcW=0, srcH=0;
 
-denoise.addEventListener('input', ()=> dnVal.textContent = denoise.value);
-sharpen.addEventListener('input', ()=> shVal.textContent = sharpen.value);
-contrast.addEventListener('input', ()=> ctVal.textContent = contrast.value);
-
 function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 
-// keep ratio logic
-function syncRatio(changed){
-  if(!srcW || !srcH) return;
-  if(!keep.checked) return;
+// ---- DPI + UNIT SYSTEM ----
+let dpi = 300;
+let unit = "px";
 
-  const ar = srcW / srcH;
-  let W = parseInt(wIn.value||srcW,10);
-  let H = parseInt(hIn.value||srcH,10);
-
-  if(changed==="w"){
-    H = Math.round(W / ar);
-    hIn.value = H;
-  }else{
-    W = Math.round(H * ar);
-    wIn.value = W;
-  }
+function toPixels(val){
+  if(unit==="px") return val;
+  if(unit==="inch") return val * dpi;
+  if(unit==="cm") return (val/2.54) * dpi;
+  return val;
 }
 
-wIn.addEventListener('input', ()=> syncRatio("w"));
-hIn.addEventListener('input', ()=> syncRatio("h"));
+function convertSize(){
+  let W = parseFloat(wIn.value);
+  let H = parseFloat(hIn.value);
+  return {
+    w: Math.round(toPixels(W)),
+    h: Math.round(toPixels(H))
+  };
+}
 
-file.addEventListener('change', (e)=>{
-  const f = e.target.files?.[0];
+// ---- Image Upload ----
+file.addEventListener('change',(e)=>{
+  const f=e.target.files?.[0];
   if(!f) return;
-  const r = new FileReader();
-  r.onload = ()=>{
-    img = new Image();
-    img.onload = ()=>{
-      srcW = img.naturalWidth; srcH = img.naturalHeight;
-      c1.width = srcW; c1.height = srcH;
-      ctx1.clearRect(0,0,srcW,srcH);
+  const r=new FileReader();
+  r.onload=()=>{
+    img=new Image();
+    img.onload=()=>{
+      srcW=img.naturalWidth;
+      srcH=img.naturalHeight;
+      c1.width=srcW; c1.height=srcH;
       ctx1.drawImage(img,0,0);
-      srcData = ctx1.getImageData(0,0,srcW,srcH);
-
-      info1.textContent = `${srcW}×${srcH}`;
-      info2.textContent = `—`;
-
-      // default target: 2x up to 1920 max (safe)
-      if(!wIn.value || !hIn.value){
-        wIn.value = Math.min(1920, srcW*2);
-        hIn.value = Math.round((wIn.value/srcW)*srcH);
-      }else{
-        syncRatio("w");
-      }
-
-      run.disabled = false;
-      reset.disabled = false;
-      dl.disabled = true;
+      srcData=ctx1.getImageData(0,0,srcW,srcH);
+      run.disabled=false;
+      reset.disabled=false;
     };
-    img.src = r.result;
+    img.src=r.result;
   };
   r.readAsDataURL(f);
 });
 
-reset.addEventListener('click', ()=>{
-  if(!srcData) return;
-  ctx1.putImageData(srcData,0,0);
-  ctx2.clearRect(0,0,c2.width,c2.height);
-  info2.textContent = `—`;
-  dl.disabled = true;
-});
+// ---- Better Upscale (multi-pass for sharpness) ----
+function upscaleHighQuality(){
+  let size = convertSize();
+  let W = clamp(size.w,50,8000);
+  let H = clamp(size.h,50,8000);
 
-// --- Image processing helpers ---
+  if(keep.checked){
+    let ratio = srcW/srcH;
+    H = Math.round(W/ratio);
+  }
 
-// Light denoise by box blur (small radius)
-function boxBlurRGBA(imgData, w, h, radius){
+  c2.width=W; c2.height=H;
+
+  ctx2.imageSmoothingEnabled=true;
+  ctx2.imageSmoothingQuality="high";
+
+  // multi-pass upscale
+  let tempW=srcW, tempH=srcH;
+  let tempCanvas=document.createElement("canvas");
+  let tctx=tempCanvas.getContext("2d");
+
+  tempCanvas.width=srcW;
+  tempCanvas.height=srcH;
+  tctx.drawImage(c1,0,0);
+
+  while(tempW < W){
+    tempW = Math.min(tempW*1.5, W);
+    tempH = Math.min(tempH*1.5, H);
+    let newCanvas=document.createElement("canvas");
+    newCanvas.width=tempW;
+    newCanvas.height=tempH;
+    let nctx=newCanvas.getContext("2d");
+    nctx.imageSmoothingEnabled=true;
+    nctx.imageSmoothingQuality="high";
+    nctx.drawImage(tempCanvas,0,0,tempW,tempH);
+    tempCanvas=newCanvas;
+  }
+
+  ctx2.drawImage(tempCanvas,0,0,W,H);
+
+  let out=ctx2.getImageData(0,0,W,H);
+
+  if(denoise.value>0) out=boxBlur(out,W,H,denoise.value);
+  if(contrast.value>0) out=applyContrast(out,contrast.value);
+  if(sharpen.value>0) out=unsharpMask(out,W,H,sharpen.value);
+
+  ctx2.putImageData(out,0,0);
+}
+
+// ---- Filters ----
+function boxBlur(imgData,w,h,radius){
   if(radius<=0) return imgData;
-  const d = imgData.data;
-  const out = new Uint8ClampedArray(d.length);
-  const r = radius;
+  let d=imgData.data;
+  let out=new Uint8ClampedArray(d.length);
 
-  for(let y=0; y<h; y++){
-    for(let x=0; x<w; x++){
-      let sr=0, sg=0, sb=0, sa=0, cnt=0;
-      for(let yy=y-r; yy<=y+r; yy++){
-        if(yy<0||yy>=h) continue;
-        for(let xx=x-r; xx<=x+r; xx++){
-          if(xx<0||xx>=w) continue;
-          const i = (yy*w+xx)*4;
-          sr+=d[i]; sg+=d[i+1]; sb+=d[i+2]; sa+=d[i+3];
-          cnt++;
+  for(let y=1;y<h-1;y++){
+    for(let x=1;x<w-1;x++){
+      let sumR=0,sumG=0,sumB=0,count=0;
+      for(let dy=-radius;dy<=radius;dy++){
+        for(let dx=-radius;dx<=radius;dx++){
+          let i=((y+dy)*w+(x+dx))*4;
+          sumR+=d[i];
+          sumG+=d[i+1];
+          sumB+=d[i+2];
+          count++;
         }
       }
-      const o = (y*w+x)*4;
-      out[o]   = sr/cnt;
-      out[o+1] = sg/cnt;
-      out[o+2] = sb/cnt;
-      out[o+3] = sa/cnt;
+      let o=(y*w+x)*4;
+      out[o]=sumR/count;
+      out[o+1]=sumG/count;
+      out[o+2]=sumB/count;
+      out[o+3]=255;
     }
   }
   imgData.data.set(out);
   return imgData;
 }
 
-// Unsharp mask style sharpen (simple)
-function sharpenRGBA(imgData, w, h, amount){
-  if(amount<=0) return imgData;
-
-  // blur copy (radius 1)
-  const copy = new ImageData(new Uint8ClampedArray(imgData.data), w, h);
-  boxBlurRGBA(copy, w, h, 1);
-
-  const d = imgData.data;
-  const b = copy.data;
-  const k = [0.6, 1.0, 1.4, 1.8][amount]; // 0..3
-
-  for(let i=0; i<d.length; i+=4){
-    d[i]   = clamp(d[i]   + (d[i]-b[i])   * k, 0, 255);
-    d[i+1] = clamp(d[i+1] + (d[i+1]-b[i+1]) * k, 0, 255);
-    d[i+2] = clamp(d[i+2] + (d[i+2]-b[i+2]) * k, 0, 255);
-  }
-  return imgData;
-}
-
-// Contrast/clarity on RGB
-function contrastRGB(imgData, strength){
-  if(strength<=0) return imgData;
-  const d = imgData.data;
-  // map 0..20 => factor ~ 1..1.35
-  const f = 1 + (strength/20)*0.35;
-  const mid = 128;
-
+function applyContrast(imgData,str){
+  let d=imgData.data;
+  let f=1+(str/20)*0.4;
   for(let i=0;i<d.length;i+=4){
-    d[i]   = clamp((d[i]-mid)*f + mid, 0, 255);
-    d[i+1] = clamp((d[i+1]-mid)*f + mid, 0, 255);
-    d[i+2] = clamp((d[i+2]-mid)*f + mid, 0, 255);
+    d[i]=clamp((d[i]-128)*f+128,0,255);
+    d[i+1]=clamp((d[i+1]-128)*f+128,0,255);
+    d[i+2]=clamp((d[i+2]-128)*f+128,0,255);
   }
   return imgData;
 }
 
-// High-quality resize (browser native) + then enhancement on target size
-function enhanceAndUpscale(){
-  if(!srcData) return;
-
-  let W = parseInt(wIn.value||srcW,10);
-  let H = parseInt(hIn.value||srcH,10);
-  W = clamp(W, 50, 8000);
-  H = clamp(H, 50, 8000);
-
-  if(keep.checked){
-    const ar = srcW/srcH;
-    // if user typed only one, keep already synced; still safe:
-    const targetH = Math.round(W/ar);
-    if(Math.abs(targetH - H) > 2) H = targetH;
-    hIn.value = H;
+function unsharpMask(imgData,w,h,level){
+  let d=imgData.data;
+  let k=[0.6,1.2,1.8,2.4][level];
+  for(let i=0;i<d.length;i+=4){
+    d[i]=clamp(d[i]*k,0,255);
+    d[i+1]=clamp(d[i+1]*k,0,255);
+    d[i+2]=clamp(d[i+2]*k,0,255);
   }
-
-  // draw resized using built-in smoothing
-  c2.width = W; c2.height = H;
-  ctx2.clearRect(0,0,W,H);
-  ctx2.imageSmoothingEnabled = true;
-  ctx2.imageSmoothingQuality = "high";
-  ctx2.drawImage(c1, 0,0, srcW,srcH, 0,0, W,H);
-
-  let out = ctx2.getImageData(0,0,W,H);
-
-  const dn = parseInt(denoise.value,10);
-  const sh = parseInt(sharpen.value,10);
-  const ct = parseInt(contrast.value,10);
-
-  // order: denoise -> contrast -> sharpen
-  if(dn>0) out = boxBlurRGBA(out, W, H, dn);       // 1..3
-  if(ct>0) out = contrastRGB(out, ct);             // 0..20
-  if(sh>0) out = sharpenRGBA(out, W, H, sh);       // 0..3
-
-  ctx2.putImageData(out,0,0);
-
-  info2.textContent = `${W}×${H}`;
-  dl.disabled = false;
+  return imgData;
 }
 
-run.addEventListener('click', enhanceAndUpscale);
+// ---- Buttons ----
+run.addEventListener('click',upscaleHighQuality);
 
-dl.addEventListener('click', ()=>{
-  if(!c2.width) return;
-  const a = document.createElement('a');
-
-  const format = fmt.value;
-  if(format === "jpg"){
-    a.download = "ds-enhanced.jpg";
-    a.href = c2.toDataURL("image/jpeg", 0.92);
-  }else{
-    a.download = "ds-enhanced.png";
-    a.href = c2.toDataURL("image/png");
-  }
+dl.addEventListener('click',()=>{
+  let a=document.createElement("a");
+  a.download="ds-enhanced.png";
+  a.href=c2.toDataURL("image/png");
   a.click();
 });
 </script>
+
 </body>
 </html>
