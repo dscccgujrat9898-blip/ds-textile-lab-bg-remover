@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DS Image Enhancer | HD Upscale</title>
+<style>
+  :root{--bg:#0b1220;--card:#0f1b34;--txt:#e9f0ff;--muted:#a9b7d0;--btn:#2b5cff}
+  *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  body{margin:0;background:radial-gradient(1200px 600px at 20% 0%,#14264a 0%,#0b1220 55%,#070b14 100%);color:var(--txt)}
+  header{padding:16px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(11,18,32,.85);position:sticky;top:0;z-index:10}
+  header h1{margin:0;font-size:18px}
+  header p{margin:6px 0 0;color:var(--muted);font-size:13px}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:14px}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,rgba(15,27,52,.86),rgba(10,16,32,.86));
+        border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px;
+        box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  label{display:block;font-size:12px;color:#cfe0ff;margin:10px 0 6px}
+  input[type="file"], input[type="number"], select{
+    width:100%;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);
+    background:rgba(0,0,0,.18);color:var(--txt)
+  }
+  input[type="range"]{width:100%}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .btn{appearance:none;border:0;background:var(--btn);color:#fff;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:650}
+  .btn.secondary{background:#1b2a4a}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .hint{color:var(--muted);font-size:12px;line-height:1.4;margin-top:8px}
+  .pill{display:inline-flex;gap:8px;align-items:center;padding:7px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.1);
+        background:rgba(0,0,0,.18);color:#d8e6ff;font-size:12px}
+  .preview{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media(max-width:700px){.preview{grid-template-columns:1fr}}
+  .pane{border:1px solid rgba(255,255,255,.1);border-radius:14px;overflow:hidden;background:rgba(0,0,0,.18)}
+  .paneHead{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
+  canvas{width:100%;height:auto;display:block}
+  .check{display:flex;align-items:center;gap:8px;margin-top:10px}
+  .check input{width:18px;height:18px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>DS Image Enhancer — HD Upscale</h1>
+    <p>Resize + Denoise + Sharpen (browser-based). “Keep Ratio” से aspect same रहेगा.</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+
+    <!-- Controls -->
+    <div class="card">
+      <label>Upload Image</label>
+      <input id="file" type="file" accept="image/*">
+
+      <div class="hint">Tip: बहुत ज़्यादा blur image में “नई detail” नहीं बनेगी, पर साफ़/HD size में output मिलेगा.</div>
+
+      <label>Target Width (px)</label>
+      <input id="w" type="number" min="50" value="1920">
+
+      <label>Target Height (px)</label>
+      <input id="h" type="number" min="50" value="1080">
+
+      <div class="check">
+        <input id="keep" type="checkbox" checked>
+        <label for="keep" style="margin:0">Keep Ratio (Aspect same)</label>
+      </div>
+
+      <label>Denoise (0–3): <span id="dnVal" class="pill">1</span></label>
+      <input id="denoise" type="range" min="0" max="3" value="1">
+
+      <label>Sharpen (0–3): <span id="shVal" class="pill">2</span></label>
+      <input id="sharpen" type="range" min="0" max="3" value="2">
+
+      <label>Clarity/Contrast (0–20): <span id="ctVal" class="pill">8</span></label>
+      <input id="contrast" type="range" min="0" max="20" value="8">
+
+      <label>Export Format</label>
+      <select id="fmt">
+        <option value="png" selected>PNG (best quality)</option>
+        <option value="jpg">JPG (smaller size)</option>
+      </select>
+
+      <div class="row" style="margin-top:12px">
+        <button id="run" class="btn" disabled>Enhance + Upscale</button>
+        <button id="reset" class="btn secondary" disabled>Reset</button>
+        <button id="dl" class="btn" disabled>Download</button>
+      </div>
+
+      <div class="hint">
+        Suggested: Denoise 1, Sharpen 2, Contrast 6–10.  
+        Logos/text: Denoise 0, Sharpen 2–3.
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div class="card">
+      <div class="preview">
+        <div class="pane">
+          <div class="paneHead">
+            <strong>Original</strong>
+            <span id="info1" class="pill">—</span>
+          </div>
+          <canvas id="c1"></canvas>
+        </div>
+
+        <div class="pane">
+          <div class="paneHead">
+            <strong>Enhanced Output</strong>
+            <span id="info2" class="pill">—</span>
+          </div>
+          <canvas id="c2"></canvas>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px">
+        Output आपके दिए हुए size में बनेगा. Keep Ratio on हो तो height/width auto adjust हो जाएगा.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const file = document.getElementById('file');
+const run = document.getElementById('run');
+const reset = document.getElementById('reset');
+const dl = document.getElementById('dl');
+
+const wIn = document.getElementById('w');
+const hIn = document.getElementById('h');
+const keep = document.getElementById('keep');
+
+const denoise = document.getElementById('denoise');
+const sharpen = document.getElementById('sharpen');
+const contrast = document.getElementById('contrast');
+const fmt = document.getElementById('fmt');
+
+const dnVal = document.getElementById('dnVal');
+const shVal = document.getElementById('shVal');
+const ctVal = document.getElementById('ctVal');
+
+const c1 = document.getElementById('c1');
+const c2 = document.getElementById('c2');
+const ctx1 = c1.getContext('2d', {willReadFrequently:true});
+const ctx2 = c2.getContext('2d', {willReadFrequently:true});
+
+const info1 = document.getElementById('info1');
+const info2 = document.getElementById('info2');
+
+let img = new Image();
+let srcData = null;
+let srcW=0, srcH=0;
+
+denoise.addEventListener('input', ()=> dnVal.textContent = denoise.value);
+sharpen.addEventListener('input', ()=> shVal.textContent = sharpen.value);
+contrast.addEventListener('input', ()=> ctVal.textContent = contrast.value);
+
+function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+// keep ratio logic
+function syncRatio(changed){
+  if(!srcW || !srcH) return;
+  if(!keep.checked) return;
+
+  const ar = srcW / srcH;
+  let W = parseInt(wIn.value||srcW,10);
+  let H = parseInt(hIn.value||srcH,10);
+
+  if(changed==="w"){
+    H = Math.round(W / ar);
+    hIn.value = H;
+  }else{
+    W = Math.round(H * ar);
+    wIn.value = W;
+  }
+}
+
+wIn.addEventListener('input', ()=> syncRatio("w"));
+hIn.addEventListener('input', ()=> syncRatio("h"));
+
+file.addEventListener('change', (e)=>{
+  const f = e.target.files?.[0];
+  if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    img = new Image();
+    img.onload = ()=>{
+      srcW = img.naturalWidth; srcH = img.naturalHeight;
+      c1.width = srcW; c1.height = srcH;
+      ctx1.clearRect(0,0,srcW,srcH);
+      ctx1.drawImage(img,0,0);
+      srcData = ctx1.getImageData(0,0,srcW,srcH);
+
+      info1.textContent = `${srcW}×${srcH}`;
+      info2.textContent = `—`;
+
+      // default target: 2x up to 1920 max (safe)
+      if(!wIn.value || !hIn.value){
+        wIn.value = Math.min(1920, srcW*2);
+        hIn.value = Math.round((wIn.value/srcW)*srcH);
+      }else{
+        syncRatio("w");
+      }
+
+      run.disabled = false;
+      reset.disabled = false;
+      dl.disabled = true;
+    };
+    img.src = r.result;
+  };
+  r.readAsDataURL(f);
+});
+
+reset.addEventListener('click', ()=>{
+  if(!srcData) return;
+  ctx1.putImageData(srcData,0,0);
+  ctx2.clearRect(0,0,c2.width,c2.height);
+  info2.textContent = `—`;
+  dl.disabled = true;
+});
+
+// --- Image processing helpers ---
+
+// Light denoise by box blur (small radius)
+function boxBlurRGBA(imgData, w, h, radius){
+  if(radius<=0) return imgData;
+  const d = imgData.data;
+  const out = new Uint8ClampedArray(d.length);
+  const r = radius;
+
+  for(let y=0; y<h; y++){
+    for(let x=0; x<w; x++){
+      let sr=0, sg=0, sb=0, sa=0, cnt=0;
+      for(let yy=y-r; yy<=y+r; yy++){
+        if(yy<0||yy>=h) continue;
+        for(let xx=x-r; xx<=x+r; xx++){
+          if(xx<0||xx>=w) continue;
+          const i = (yy*w+xx)*4;
+          sr+=d[i]; sg+=d[i+1]; sb+=d[i+2]; sa+=d[i+3];
+          cnt++;
+        }
+      }
+      const o = (y*w+x)*4;
+      out[o]   = sr/cnt;
+      out[o+1] = sg/cnt;
+      out[o+2] = sb/cnt;
+      out[o+3] = sa/cnt;
+    }
+  }
+  imgData.data.set(out);
+  return imgData;
+}
+
+// Unsharp mask style sharpen (simple)
+function sharpenRGBA(imgData, w, h, amount){
+  if(amount<=0) return imgData;
+
+  // blur copy (radius 1)
+  const copy = new ImageData(new Uint8ClampedArray(imgData.data), w, h);
+  boxBlurRGBA(copy, w, h, 1);
+
+  const d = imgData.data;
+  const b = copy.data;
+  const k = [0.6, 1.0, 1.4, 1.8][amount]; // 0..3
+
+  for(let i=0; i<d.length; i+=4){
+    d[i]   = clamp(d[i]   + (d[i]-b[i])   * k, 0, 255);
+    d[i+1] = clamp(d[i+1] + (d[i+1]-b[i+1]) * k, 0, 255);
+    d[i+2] = clamp(d[i+2] + (d[i+2]-b[i+2]) * k, 0, 255);
+  }
+  return imgData;
+}
+
+// Contrast/clarity on RGB
+function contrastRGB(imgData, strength){
+  if(strength<=0) return imgData;
+  const d = imgData.data;
+  // map 0..20 => factor ~ 1..1.35
+  const f = 1 + (strength/20)*0.35;
+  const mid = 128;
+
+  for(let i=0;i<d.length;i+=4){
+    d[i]   = clamp((d[i]-mid)*f + mid, 0, 255);
+    d[i+1] = clamp((d[i+1]-mid)*f + mid, 0, 255);
+    d[i+2] = clamp((d[i+2]-mid)*f + mid, 0, 255);
+  }
+  return imgData;
+}
+
+// High-quality resize (browser native) + then enhancement on target size
+function enhanceAndUpscale(){
+  if(!srcData) return;
+
+  let W = parseInt(wIn.value||srcW,10);
+  let H = parseInt(hIn.value||srcH,10);
+  W = clamp(W, 50, 8000);
+  H = clamp(H, 50, 8000);
+
+  if(keep.checked){
+    const ar = srcW/srcH;
+    // if user typed only one, keep already synced; still safe:
+    const targetH = Math.round(W/ar);
+    if(Math.abs(targetH - H) > 2) H = targetH;
+    hIn.value = H;
+  }
+
+  // draw resized using built-in smoothing
+  c2.width = W; c2.height = H;
+  ctx2.clearRect(0,0,W,H);
+  ctx2.imageSmoothingEnabled = true;
+  ctx2.imageSmoothingQuality = "high";
+  ctx2.drawImage(c1, 0,0, srcW,srcH, 0,0, W,H);
+
+  let out = ctx2.getImageData(0,0,W,H);
+
+  const dn = parseInt(denoise.value,10);
+  const sh = parseInt(sharpen.value,10);
+  const ct = parseInt(contrast.value,10);
+
+  // order: denoise -> contrast -> sharpen
+  if(dn>0) out = boxBlurRGBA(out, W, H, dn);       // 1..3
+  if(ct>0) out = contrastRGB(out, ct);             // 0..20
+  if(sh>0) out = sharpenRGBA(out, W, H, sh);       // 0..3
+
+  ctx2.putImageData(out,0,0);
+
+  info2.textContent = `${W}×${H}`;
+  dl.disabled = false;
+}
+
+run.addEventListener('click', enhanceAndUpscale);
+
+dl.addEventListener('click', ()=>{
+  if(!c2.width) return;
+  const a = document.createElement('a');
+
+  const format = fmt.value;
+  if(format === "jpg"){
+    a.download = "ds-enhanced.jpg";
+    a.href = c2.toDataURL("image/jpeg", 0.92);
+  }else{
+    a.download = "ds-enhanced.png";
+    a.href = c2.toDataURL("image/png");
+  }
+  a.click();
+});
+</script>
+</body>
+</html>
